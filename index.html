@@ -1554,12 +1554,35 @@ if(!state.answered)state.answered={};if(!state.tests)state.tests=[];
 
 /* ===== access control (client-side gate — distribution build) ===== */
 const USERS={"CAPTAIN":{p:"A320-CMD-2026",days:0},"GUEST":{p:"A320-7Q4X-30D",days:30}};
+
+/* ===== access code system (self-service, admin generated) ===== */
+const CSALT="A320-NIETO-2026-KEY";
+function cHash(str){let h=5381;for(let i=0;i<str.length;i++){h=((h*33)^str.charCodeAt(i))>>>0;}return h.toString(36).toUpperCase().slice(-4).padStart(4,"X");}
+function today(){return Math.floor(Date.now()/86400000);}
+function makeCode(days){const exp=today()+days;const p=exp.toString(36).toUpperCase();return "A320-"+p+"-"+cHash(p+CSALT);}
+function readCode(code){
+ const c=String(code||"").trim().toUpperCase().replace(/\s/g,"");
+ const m=c.match(/^A320-([0-9A-Z]+)-([0-9A-Z]{4})$/);
+ if(!m)return null;
+ if(cHash(m[1]+CSALT)!==m[2])return null;
+ const exp=parseInt(m[1],36);
+ if(!exp||isNaN(exp))return null;
+ return {exp:exp,left:exp-today()};
+}
 const AKEY="a320t2-auth";
 function authInfo(){try{return JSON.parse(localStorage.getItem(AKEY))}catch(e){return null}}
-function authOK(){const a=authInfo();if(!a)return false;const u=USERS[a.u];if(!u)return false;return u.days===0||(Date.now()-a.ts)<u.days*86400000;}
-function daysLeft(){const a=authInfo();if(!a)return 0;const u=USERS[a.u];if(!u)return 0;return u.days===0?9999:Math.max(0,Math.ceil((u.days*86400000-(Date.now()-a.ts))/86400000));}
-function login(user,pass){const k=String(user||"").trim().toUpperCase();const u=USERS[k];if(!u||pass!==u.p)return "bad";const prev=authInfo();const ts=(prev&&prev.u===k)?prev.ts:Date.now();if(u.days>0&&(Date.now()-ts)>=u.days*86400000)return "expired";try{localStorage.setItem(AKEY,JSON.stringify({u:k,ts:ts}))}catch(e){}return "ok";}
+function authOK(){const a=authInfo();if(!a)return false;
+ if(a.code){const r=readCode(a.code);return !!r&&r.left>=0;}
+ const u=USERS[a.u];if(!u)return false;return u.days===0||(Date.now()-a.ts)<u.days*86400000;}
+function daysLeft(){const a=authInfo();if(!a)return 0;
+ if(a.code){const r=readCode(a.code);return r?Math.max(0,r.left):0;}
+ const u=USERS[a.u];if(!u)return 0;return u.days===0?9999:Math.max(0,Math.ceil((u.days*86400000-(Date.now()-a.ts))/86400000));}
+function login(user,pass){const k=String(user||"").trim().toUpperCase();
+ const rc=readCode(pass);
+ if(rc){if(rc.left<0)return "expired";try{localStorage.setItem(AKEY,JSON.stringify({u:k||"GUEST",ts:Date.now(),code:String(pass).trim().toUpperCase()}))}catch(e){}return "ok";}
+ const u=USERS[k];if(!u||pass!==u.p)return "bad";const prev=authInfo();const ts=(prev&&prev.u===k)?prev.ts:Date.now();if(u.days>0&&(Date.now()-ts)>=u.days*86400000)return "expired";try{localStorage.setItem(AKEY,JSON.stringify({u:k,ts:ts}))}catch(e){}return "ok";}
 function logout(){try{localStorage.removeItem(AKEY)}catch(e){}view="dash";render();}
+function isAdmin(){const a=authInfo();if(!a||a.code)return false;const u=USERS[a.u];return !!u&&u.days===0;}
 const scriptFor=id=>(typeof SCRIPTS!=="undefined")?(SCRIPTS.find(s=>s.sysId===id)||null):null;
 
 
@@ -1625,6 +1648,7 @@ function render(){
   if(view==="sim")return renderSim();
   if(view==="tests")return renderTests();
   if(view==="q")return renderQuestions();
+  if(view==="admin")return renderAdmin();
   return renderDash();
 }
 
@@ -1939,7 +1963,7 @@ function renderDash(){
  +'<button class="syscard qa" id="qaP"><div class="ecp">PRACTICE TEST</div><div class="nm">By system &amp; difficulty</div></button>'
  +'<button class="syscard qa" id="qaE"><div class="ecp" style="color:var(--amber)">EXAM TEST</div><div class="nm">'+examLen+' random questions</div></button>'
  +'<button class="syscard qa" id="qaR"><div class="ecp" style="color:var(--red)">REVIEW TEST</div><div class="nm">'+state.failed.length+' failed question(s)</div></button>'
- +'<button class="syscard qa" id="qaS"><div class="ecp" style="color:var(--cyan)">SEARCH QUESTIONS</div><div class="nm">Browse the question bank</div></button></div>'
+ +'<button class="syscard qa" id="qaS"><div class="ecp" style="color:var(--cyan)">SEARCH QUESTIONS</div><div class="nm">Browse the question bank</div></button>'+(isAdmin()?'<button class="syscard qa" id="qaA"><div class="ecp" style="color:var(--white)">ACCESS CODES</div><div class="nm">Generate 30-day keys</div></button>':'')+'</div>'
  +'<div class="row" style="margin-top:16px;align-items:stretch">'
  +'<div class="card tile"><div class="tno">'+tests.length+'</div><div class="tlb">TESTS TAKEN</div><div class="tsb">'+comp.length+' COMPLETED · '+(tests.length-comp.length)+' IN PROGRESS</div></div>'
  +'<div class="card tile"><div class="tno" style="color:var(--green)">'+hi+'</div><div class="tlb">HIGH SCORES ≥75%</div><div class="tsb">'+exams.length+' EXAM TEST(S) · '+(exams.length?Math.round(exHi/exams.length*100):0)+'% PASS</div></div>'
@@ -1956,6 +1980,7 @@ function renderDash(){
  document.getElementById("qaE").onclick=()=>startQuiz(shuffle(ALL).slice(0,examLen),"GENERAL EXAM "+examLen,"dash","EXAM","ALL",0);
  document.getElementById("qaR").onclick=()=>goto("failedMenu");
  document.getElementById("qaS").onclick=()=>goto("q");
+ const qaA=document.getElementById("qaA");if(qaA)qaA.onclick=()=>goto("admin");
  bindNav();}
 let tfType="ALL",tfSt="ALL",tfDiff=0;
 function renderTests(){
@@ -2039,6 +2064,35 @@ function renderQuestions(){
  document.querySelectorAll(".qrow").forEach(el=>el.onclick=()=>{qOpen=qOpen===el.dataset.uid?null:el.dataset.uid;render();});
  bindNav();}
 
+/* ===== admin: generador de claves ===== */
+let genCode="",genDays=30;
+function renderAdmin(){
+ renderHeader("ACCESS CODES");
+ if(!isAdmin()){app.innerHTML='<div class="card">Administrator access required.</div>'+FOOTER+navHTML("dash");bindNav();return;}
+ const url=(typeof window!=="undefined"&&window.location)?String(window.location.href).split("#")[0]:"";
+ let dbt="";[7,30,60,90,365].forEach(d=>{dbt+='<button class="btn gday" data-d="'+d+'" style="padding:6px 12px;font-size:12px;'+(genDays===d?"background:var(--cyan);color:#08131a;font-weight:700;border-color:var(--cyan);":"")+'">'+d+' D</button>';});
+ const msg=genCode?("A320 Systems Trainer\n"+url+"\nUsuario: el que quieras\nClave: "+genCode+"\nAcceso valido "+genDays+" dias."):"";
+ app.innerHTML='<div class="card"><div class="mono" style="color:var(--green);font-size:15px;font-weight:700">ACCESS CODE GENERATOR</div>'
+ +'<div style="font-size:13px;color:var(--gray);margin:8px 0 12px;line-height:1.55">Generate unlimited time-limited keys. The expiry date travels inside the code itself, so it cannot be reset by clearing browser data. Any username works with a valid key.</div>'
+ +'<div class="mono" style="font-size:11px;color:var(--dim);margin-bottom:6px">VALIDITY</div><div class="row">'+dbt+'</div>'
+ +'<div class="row" style="margin-top:12px"><button class="solid green" id="gen">GENERATE KEY \u25B8</button></div>'
+ +(genCode?'<div style="margin-top:14px;border:1px solid var(--green);border-radius:10px;padding:14px;background:rgba(47,208,107,.06)">'
+   +'<div class="mono" style="font-size:11px;color:var(--dim)">NEW KEY \u2014 '+genDays+' DAYS</div>'
+   +'<div class="mono" style="font-size:21px;font-weight:700;color:var(--green);letter-spacing:2px;margin:8px 0;word-break:break-all">'+esc(genCode)+'</div>'
+   +'<textarea id="wmsg" class="inp ta" style="min-height:100px;font-size:12.5px;letter-spacing:0;font-family:inherit">'+esc(msg)+'</textarea>'
+   +'<div class="row"><button class="btn green" id="cp">COPY MESSAGE</button><span class="mono" id="cpok" style="font-size:11px;color:var(--dim)"></span></div>'
+   +'<div class="mono" style="font-size:10.5px;color:var(--amber);margin-top:10px;line-height:1.5">SAVE THIS KEY \u2014 it cannot be listed again, only regenerated.</div></div>':'')
+ +'</div>'
+ +'<div class="card" style="margin-top:12px;font-size:12.5px;color:var(--gray);line-height:1.6"><span class="mono" style="color:var(--cyan);font-size:12px">HOW IT WORKS</span><br>Each key carries its own expiry date. On that date the app stops accepting it on every device. Generate as many as you need \u2014 one per person, or one per group.</div>'
+ +FOOTER+navHTML("dash");
+ document.querySelectorAll(".gday").forEach(b=>b.onclick=()=>{genDays=+b.dataset.d;genCode="";render();});
+ document.getElementById("gen").onclick=()=>{genCode=makeCode(genDays);render();};
+ const cp=document.getElementById("cp");
+ if(cp)cp.onclick=()=>{const t=document.getElementById("wmsg");
+  try{if(t&&t.select)t.select();if(typeof navigator!=="undefined"&&navigator.clipboard&&t)navigator.clipboard.writeText(t.value);
+   const ok=document.getElementById("cpok");if(ok)ok.textContent="COPIED \u2713";}catch(e){}};
+ bindNav();
+}
 render();
 </script>
 </body>
