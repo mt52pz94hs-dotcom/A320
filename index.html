@@ -1559,13 +1559,19 @@ const USERS={"CAPTAIN":{p:"A320-CMD-2026",days:0},"GUEST":{p:"A320-7Q4X-30D",day
 const CSALT="A320-NIETO-2026-KEY";
 function cHash(str){let h=5381;for(let i=0;i<str.length;i++){h=((h*33)^str.charCodeAt(i))>>>0;}return h.toString(36).toUpperCase().slice(-4).padStart(4,"X");}
 function today(){return Math.floor(Date.now()/86400000);}
-function makeCode(days){const exp=today()+days;const p=exp.toString(36).toUpperCase();return "A320-"+p+"-"+cHash(p+CSALT);}
+function rnd3(){const A="0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";let s="";for(let i=0;i<3;i++)s+=A.charAt(Math.floor(Math.random()*A.length));return s;}
+function makeCode(days){const exp=today()+days;const p=exp.toString(36).toUpperCase();const n=rnd3();return "A320-"+p+"-"+n+"-"+cHash(p+n+CSALT);}
 function readCode(code){
  const c=String(code||"").trim().toUpperCase().replace(/\s/g,"");
- const m=c.match(/^A320-([0-9A-Z]+)-([0-9A-Z]{4})$/);
- if(!m)return null;
- if(cHash(m[1]+CSALT)!==m[2])return null;
- const exp=parseInt(m[1],36);
+ let exp=null;
+ const m4=c.match(/^A320-([0-9A-Z]+)-([0-9A-Z]{3})-([0-9A-Z]{4})$/);
+ if(m4){ if(cHash(m4[1]+m4[2]+CSALT)!==m4[3])return null; exp=parseInt(m4[1],36); }
+ else{
+  const m3=c.match(/^A320-([0-9A-Z]+)-([0-9A-Z]{4})$/);
+  if(!m3)return null;
+  if(cHash(m3[1]+CSALT)!==m3[2])return null;
+  exp=parseInt(m3[1],36);
+ }
  if(!exp||isNaN(exp))return null;
  return {exp:exp,left:exp-today()};
 }
@@ -1819,7 +1825,7 @@ function renderLogin(){
  +'<input id="p" class="inp" type="password" placeholder="ACCESS CODE">'
  +'<div id="err" class="mono" style="color:var(--red);font-size:12px;min-height:16px;margin:6px 0"></div>'
  +'<button class="solid green" id="go" style="width:100%">ENTER ▸</button>'
- +'<div class="mono" style="font-size:10.5px;color:var(--dim);margin-top:14px;line-height:1.6;text-align:center">STANDARD ACCESS EXPIRES 30 DAYS AFTER FIRST LOGIN ON THIS DEVICE.<br>© 2026 Walter Andrés Nieto Ramos<br>ALL RIGHTS RESERVED — UNAUTHORIZED DISTRIBUTION PROHIBITED</div></div></div>';
+ +'<div class="mono" style="font-size:10.5px;color:var(--dim);margin-top:14px;line-height:1.6;text-align:center">EACH ACCESS KEY CARRIES ITS OWN EXPIRY DATE.<br>© 2026 Walter Andrés Nieto Ramos<br>ALL RIGHTS RESERVED — UNAUTHORIZED DISTRIBUTION PROHIBITED</div></div></div>';
  const go=()=>{const r=login(document.getElementById("u").value,document.getElementById("p").value);
   if(r==="ok")render();else document.getElementById("err").textContent=r==="expired"?"ACCESS EXPIRED — CONTACT ADMINISTRATOR":"INVALID CREDENTIALS";};
  document.getElementById("go").onclick=go;
@@ -2071,7 +2077,7 @@ function renderAdmin(){
  if(!isAdmin()){app.innerHTML='<div class="card">Administrator access required.</div>'+FOOTER+navHTML("dash");bindNav();return;}
  const url=(typeof window!=="undefined"&&window.location)?String(window.location.href).split("#")[0]:"";
  let dbt="";[7,30,60,90,365].forEach(d=>{dbt+='<button class="btn gday" data-d="'+d+'" style="padding:6px 12px;font-size:12px;'+(genDays===d?"background:var(--cyan);color:#08131a;font-weight:700;border-color:var(--cyan);":"")+'">'+d+' D</button>';});
- const msg=genCode?("A320 Systems Trainer\n"+url+"\nUsuario: el que quieras\nClave: "+genCode+"\nAcceso valido "+genDays+" dias."):"";
+ const msg=genCode?("A320 Systems Trainer\n"+url+"\nUsuario: escribe tu nombre\nClave: "+genCode+"\nAcceso valido "+genDays+" dias."):"";
  app.innerHTML='<div class="card"><div class="mono" style="color:var(--green);font-size:15px;font-weight:700">ACCESS CODE GENERATOR</div>'
  +'<div style="font-size:13px;color:var(--gray);margin:8px 0 12px;line-height:1.55">Generate unlimited time-limited keys. The expiry date travels inside the code itself, so it cannot be reset by clearing browser data. Any username works with a valid key.</div>'
  +'<div class="mono" style="font-size:11px;color:var(--dim);margin-bottom:6px">VALIDITY</div><div class="row">'+dbt+'</div>'
